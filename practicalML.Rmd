@@ -1,0 +1,154 @@
+---
+title: "Practical Machine Learning Assignment"
+
+output: html_document
+---
+```{r echo = TRUE}
+setwd("C:/Users/Ben/Documents/practicalML")
+library(caret)
+library(corrplot)
+library(randomForest)
+```
+
+## Study summary
+Due to the proliferation of 'quantified self' devices, it is relatively easy to collect large amounts of personal fittness data. With this data it is relatively trivial to determine how much exercise has been done, but it is a less obvious task to determine whether or not an exercise is being performed correctly. To produce a dataset enabling detection of whether or not an exercise is being performed corrrectly, six participants performed five different exercises using both correct and incorrect form. A complete explanation of the dataset and how it was gathered is available on <http://groupware.les.inf.puc-rio.br/har>. The R libraries, caret, randomForest and corrplot were used to complete the analysis.
+
+The training dataset is available at:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv> and the testing dataset is available at <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>.
+
+###loading and munging the data
+
+The data is loaded into R and missing values are designated "NA".
+```{r echo = TRUE}
+training  <- read.csv("pml-training.csv",
+                      na.strings = c("NA", ""))
+testing 	<- read.csv("pml-testing.csv",
+                     na.strings = c("NA", ""))
+```
+
+After the data has been loaded it is good to inspect it. Because the objective of the analysis is to determine whether or not an exercise has been done with proper form some parts of the dataset are not useful. 
+
+```{r echo = TRUE}
+colnames(training)
+```
+
+After examining the collumn headers it becomes evident that not all of the collumns are relevant for predicting and the first six collumns of both the Training and Testing datasets, which contaare named in " ",user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window can be removed from the analysis, as only numeric data is relevant.
+
+```{r echo = TRUE}
+training <- subset(training,
+                   select = -c(1:6))
+testing  <- subset(testing, 
+                   select = -c(1:6))
+```  	
+
+Columns in the dataset with missing values are then identified and removed. The new dataset has fewer variables, but as will be seen later on in the analysis, the removal of the columns with missing values does not significantly effect the predictive power of any moddels built upon the dataset.
+
+```{r}
+trainingSum <- colSums(is.na(training))
+trainingSumZero <- (trainingSum == 0)
+trainingNAMunge <- training[, (colSums(is.na(training)) == 0)]
+testingNAMunge <- testing[, (colSums(is.na(training)) == 0)]
+```
+
+
+### Partitioning the data
+Now that the data has been formatted in such a way that it is parsable by various analytic functions, it is appropriate to partition toe training set into testing and test validation sets to prevent overfitting.
+
+```{r}
+processedTraining <- createDataPartition(y = trainingNAMunge$classe,
+                                         p = 0.6,
+                                         list = FALSE)
+partitionedTraining <- trainingNAMunge[processedTraining, ]
+partitionedTrainingTest <- trainingNAMunge[-processedTraining, ]
+```
+
+###Correlation matrix
+
+```{r}
+correlations <- cor(partitionedTraining[, -54])
+corrplot( correlations,
+          order = "FPC",
+          method = "circle",
+          type = "lower",
+          tl.cex = 0.6, 
+          tl.col = "black", 
+          title = "Correlations between variables")
+  
+```
+
+
+The correlation matrix above visualizes the correlations between predictors of the classe variables within the dataset. The dataset was organized by principle components so that predictors would be linearly uncorrelated. Variables which are dark blue are highly postively correlated and variables which are dark red are highly negatively correlated. 
+
+
+###Preprocessing and prediction
+
+```{r}
+preProcessedTraining <- preProcess(partitionedTraining[, -54],
+                                   method = "pca", 
+                                   thresh = 0.99)
+trainingPrediction <- predict(preProcessedTraining,
+                              partitionedTraining[, -54])
+testValidation <- predict(preProcessedTraining,
+                          partitionedTraining[, -54])  
+	
+	
+```
+
+To employ the variables selected by PCA in the matrix above, the preprocessing function is used on the dataset with the 'classe' variable removed. The prediction function can then be used.
+
+###Training a random forest model
+
+```{r}
+randomForestModel <- train(  partitionedTraining$classe ~ .,
+					method = "rf",
+					data = trainingPrediction,
+					trControl = trainControl(method = "cv", 
+					number = 4),
+					importance = TRUE)
+```
+
+As random forests are a generally good predictor, and deal well with both linear and nonlinearly correlated variables one was chosen to train a model on. A random forest takes a long time to run, and it can potentially overfit a model- so a smaller subset of data was used to train on.
+
+```{r}
+varImpPlot(randomForestModel$finalModel, 
+  		sort = FALSE, 
+			type = 1,
+main = "Accuracy of principle components as predictors")
+
+```
+
+
+###Cross validation
+```{r}
+validationRandomForest <- predict(randomForestModel, testValidation)
+confusionMatrixOut <- confusionMatrix(partitionedTraining$classe, validationRandomForest)
+confusionMatrixOut$table
+
+```
+
+To cross validate the model against the dataset the predict function is called again to produce a model for validation. The cross validation matrix, which shows how well the model predicted the values, is then displayed.
+
+###The final model
+
+```{r}
+
+predictiveAccuracy <- postResample(partitionedTraining$classe, validationRandomForest)
+randomForestAccuracy <- predictiveAccuracy[[1]]
+randomForestAccuracy
+
+```
+The accuracy of the model.
+
+```{r eval = FALSE}
+testpredictiveModel <- predict(preProcessedTraining, testingNAMunge[,-54])
+prediction <- predict( ,testpredictiveModel)  
+	
+```
+##Conclusion
+
+The random forest model that was built by the caret package produces the following character vector of results.
+
+B  A  B  A  A  E  D  B  A  A  B  C  B  A  E  E  A  B  B  B 
+
+
+The character vector above was submitted to the website for grading, and successfully predicted nineteen out of twenty of the results. As such, the following method had a 95% accuracy.
